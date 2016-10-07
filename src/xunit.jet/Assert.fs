@@ -13,7 +13,7 @@ module Assert =
 
     type EqualDeepException (userMessage:string) = inherit XunitException(userMessage)
 
-    //TODO: handle maps and sets
+    //TODO: handle maps
     // Note: Although this function has a recursive flow, recursion has to be done through reflection because the generic type can change with each iteration.
     let equalDeepHelper<'a> (selfReference:MethodInfo) (expected:'a) (actual:'a) (breadcrumb:string list) =
 
@@ -21,6 +21,7 @@ module Assert =
         let (|ListToList|_|) (candidate:obj) = candidate :?> System.Collections.IEnumerable |> Seq.cast<obj> |> Seq.toList |> Some
         let (|SeqToSeq|_|) (candidate:obj) = candidate :?> System.Collections.IEnumerable |> Seq.cast<obj> |> Some
         let (|ArrayToArray|_|) (candidate:obj) = candidate :?> System.Collections.IEnumerable |> Seq.cast<obj> |> Seq.toArray |> Some
+        let (|SetToSet|_|) (candidate:obj) = candidate :?> System.Collections.IEnumerable |> Seq.cast<IComparable> |> Set.ofSeq |> Some
 
         let formatError (message:string) (breadcrumbValue:string option) : string =
             let breadcrumbFolder (state:string) (breadcrumbItem:string) : string =
@@ -113,6 +114,9 @@ module Assert =
                     | true -> assertRecord (e.GetType()) e a
                     | false -> recurse e a (e.GetType()) eUnionCaseInfo.Name
 
+        let assertSet (expected:'b Set) (actual:'b Set) =
+            assertCollection (expected |> Set.toList) (actual |> Set.toList) "set"
+
         let t = typeof<'a>
         if t |> FSharpType.IsRecord then
             assertRecord t expected actual
@@ -128,6 +132,10 @@ module Assert =
             match (expected, actual) with
             | (ArrayToArray e, ArrayToArray a) -> assertArray e a
             | _ -> fail "Failed pattern matching on array" None
+        elif t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Set<_>> then
+            match (expected, actual) with
+            | (SetToSet e, SetToSet a) -> assertSet e a
+            | _ -> fail "Failed pattern matching on set" None
         elif t |> FSharpType.IsTuple then
             assertTuple expected actual
         elif t |> FSharpType.IsUnion then
@@ -139,7 +147,8 @@ module Assert =
         with _ ->
             let t = typeof<'a>
             match FSharpType.IsRecord t || FSharpType.IsUnion t || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<list<_>>)
-                    || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<seq<_>>) || t.IsArray || FSharpType.IsTuple t with
+                    || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<seq<_>>) || t.IsArray || FSharpType.IsTuple t
+                    || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<Set<_>>) with
             | true ->
                 let moduleInfo =
                     Assembly.GetExecutingAssembly().GetTypes()
